@@ -109,9 +109,6 @@
  # include <AC_PrecLand/AC_PrecLand.h>
  # include <AP_IRLock/AP_IRLock.h>
 #endif
-#if FRSKY_TELEM_ENABLED == ENABLED
- # include <AP_Frsky_Telem/AP_Frsky_Telem.h>
-#endif
 #if ADSB_ENABLED == ENABLED
  # include <AP_ADSB/AP_ADSB.h>
 #endif
@@ -141,10 +138,6 @@
 #endif
 #if CAMERA == ENABLED
  # include <AP_Camera/AP_Camera.h>
-#endif
-
-#if DEVO_TELEM_ENABLED == ENABLED
- #include <AP_Devo_Telem/AP_Devo_Telem.h>
 #endif
 
 #if OSD_ENABLED == ENABLED
@@ -403,14 +396,6 @@ private:
     AP_BattMonitor battery{MASK_LOG_CURRENT,
                            FUNCTOR_BIND_MEMBER(&Copter::handle_battery_failsafe, void, const char*, const int8_t),
                            _failsafe_priorities};
-
-#if FRSKY_TELEM_ENABLED == ENABLED
-    // FrSky telemetry support
-    AP_Frsky_Telem frsky_telemetry;
-#endif
-#if DEVO_TELEM_ENABLED == ENABLED
-    AP_DEVO_Telem devo_telemetry;
-#endif
 
 #if OSD_ENABLED == ENABLED
     AP_OSD osd;
@@ -707,7 +692,6 @@ private:
 
     // GCS_Mavlink.cpp
     void gcs_send_heartbeat(void);
-    void send_rpm(mavlink_channel_t chan);
 
     // heli.cpp
     void heli_init();
@@ -770,7 +754,7 @@ private:
     // motors.cpp
     void arm_motors_check();
     void auto_disarm_check();
-    bool init_arm_motors(AP_Arming::ArmingMethod method, bool do_arming_checks=true);
+    bool init_arm_motors(AP_Arming::Method method, bool do_arming_checks=true);
     void init_disarm_motors();
     void motors_output();
     void lost_vehicle_check();
@@ -784,6 +768,7 @@ private:
     void load_parameters(void);
     void convert_pid_parameters(void);
     void convert_lgr_parameters(void);
+    void convert_tradheli_parameters(void);
 
     // precision_landing.cpp
     void init_precland();

@@ -201,10 +201,13 @@ void AP_InertialSensor_Invensense::start()
         gdev = DEVTYPE_GYR_MPU9250;
         adev = DEVTYPE_ACC_MPU9250;
         break;
+    case Invensense_ICM20602:
+        gdev = DEVTYPE_INS_ICM20602;
+        adev = DEVTYPE_INS_ICM20602;
+        break;
     case Invensense_MPU6000:
     case Invensense_MPU6500:
     case Invensense_ICM20608:
-    case Invensense_ICM20602:
     default:
         gdev = DEVTYPE_GYR_MPU6000;
         adev = DEVTYPE_ACC_MPU6000;
@@ -450,7 +453,7 @@ bool AP_InertialSensor_Invensense::_accumulate(uint8_t *samples, uint8_t n_sampl
 bool AP_InertialSensor_Invensense::_accumulate_sensor_rate_sampling(uint8_t *samples, uint8_t n_samples)
 {
     int32_t tsum = 0;
-    const int32_t clip_limit = AP_INERTIAL_SENSOR_ACCEL_CLIP_THRESH_MSS / _accel_scale;
+    const int32_t unscaled_clip_limit = _clip_limit / _accel_scale;
     bool clipped = false;
     bool ret = true;
     
@@ -472,9 +475,9 @@ bool AP_InertialSensor_Invensense::_accumulate_sensor_rate_sampling(uint8_t *sam
             Vector3f a(int16_val(data, 1),
                        int16_val(data, 0),
                        -int16_val(data, 2));
-            if (fabsf(a.x) > clip_limit ||
-                fabsf(a.y) > clip_limit ||
-                fabsf(a.z) > clip_limit) {
+            if (fabsf(a.x) > unscaled_clip_limit ||
+                fabsf(a.y) > unscaled_clip_limit ||
+                fabsf(a.z) > unscaled_clip_limit) {
                 clipped = true;
             }
             _accum.accel += _accum.accel_filter.apply(a);

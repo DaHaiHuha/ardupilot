@@ -64,8 +64,11 @@ import base64
 import time
 import array
 import os
+import platform
 
 from sys import platform as _platform
+
+is_WSL = bool("Microsoft" in platform.uname()[2])
 
 # default list of port names to look for autopilots
 default_ports = [ '/dev/serial/by-id/usb-Ardu*',
@@ -78,7 +81,7 @@ default_ports = [ '/dev/serial/by-id/usb-Ardu*',
                   '/dev/serial/by-id/usb-Holybro*',
                   '/dev/tty.usbmodem*']
 
-if "cygwin" in _platform:
+if "cygwin" in _platform or is_WSL:
     default_ports += [ '/dev/ttyS*' ]
     
 # Detect python version
@@ -678,12 +681,12 @@ def ports_to_try(args):
         # Cygwin, don't open MAC OS and Win ports, we are more like
         # Linux. Cygwin needs to be before Windows test
         pass
-    elif "win" in _platform:
-        # Windows, don't open POSIX ports
-        portlist = [port for port in portlist if "/" not in port]
     elif "darwin" in _platform:
         # OS X, don't open Windows and Linux ports
         portlist = [port for port in portlist if "COM" not in port and "ACM" not in port]
+    elif "win" in _platform:
+        # Windows, don't open POSIX ports
+        portlist = [port for port in portlist if "/" not in port]
 
     return portlist
 
@@ -771,9 +774,10 @@ def main():
                                   args.source_component)
 
                 except Exception as e:
-                    print("Exception creating uploader: %s" % str(e))
-                    # open failed, rate-limit our attempts
-                    time.sleep(0.05)
+                    if not is_WSL:
+                        # open failed, WSL must cycle through all ttyS* ports quickly but rate limit everything else
+                        print("Exception creating uploader: %s" % str(e))
+                        time.sleep(0.05)
 
                     # and loop to the next port
                     continue

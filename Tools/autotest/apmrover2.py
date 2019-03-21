@@ -28,74 +28,18 @@ SITL_START_LOCATION = mavutil.location(40.071374969556928,
 
 
 class AutoTestRover(AutoTest):
-    def __init__(self,
-                 binary,
-                 valgrind=False,
-                 gdb=False,
-                 speedup=8,
-                 frame=None,
-                 params=None,
-                 gdbserver=False,
-                 breakpoints=[],
-                 **kwargs):
-        super(AutoTestRover, self).__init__(**kwargs)
-        self.binary = binary
-        self.valgrind = valgrind
-        self.gdb = gdb
-        self.frame = frame
-        self.params = params
-        self.gdbserver = gdbserver
-        self.breakpoints = breakpoints
 
-        self.speedup = speedup
+    def log_name(self):
+        return "APMrover2"
 
-        self.sitl = None
-
-        self.log_name = "APMrover2"
+    def test_filepath(self):
+         return os.path.realpath(__file__)
 
     def sitl_start_location(self):
         return SITL_START_LOCATION
 
-    def init(self):
-        super(AutoTestRover, self).init(os.path.realpath(__file__))
-        if self.frame is None:
-            self.frame = 'rover'
-
-        self.mavproxy_logfile = self.open_mavproxy_logfile()
-
-        self.sitl = util.start_SITL(self.binary,
-                                    model=self.frame,
-                                    home=self.sitl_home(),
-                                    speedup=self.speedup,
-                                    valgrind=self.valgrind,
-                                    gdb=self.gdb,
-                                    gdbserver=self.gdbserver,
-                                    breakpoints=self.breakpoints,
-                                    wipe=True)
-        self.mavproxy = util.start_MAVProxy_SITL(
-            'APMrover2',
-            logfile=self.mavproxy_logfile,
-            options=self.mavproxy_options())
-        self.mavproxy.expect('Telemetry log: (\S+)\r\n')
-        self.logfile = self.mavproxy.match.group(1)
-        self.progress("LOGFILE %s" % self.logfile)
-        self.try_symlink_tlog()
-
-        self.progress("WAITING FOR PARAMETERS")
-        self.mavproxy.expect('Received [0-9]+ parameters')
-
-        util.expect_setup_callback(self.mavproxy, self.expect_callback)
-
-        self.expect_list_clear()
-        self.expect_list_extend([self.sitl, self.mavproxy])
-
-        self.progress("Started simulator")
-
-        self.get_mavlink_connection_going()
-
-        self.apply_defaultfile_parameters()
-
-        self.progress("Ready to start testing!")
+    def default_frame(self):
+        return "rover"
 
     def is_rover(self):
         return True
@@ -325,8 +269,10 @@ class AutoTestRover(AutoTest):
 
             self.progress("Sprayer OK")
         except Exception as e:
+            self.progress("Caught exception: %s" % str(e))
             ex = e
         self.context_pop()
+        self.disarm_vehicle(force=True)
         self.reboot_sitl()
         if ex:
             raise ex
@@ -443,6 +389,10 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             "Brakes work (with=%0.2fm without=%0.2fm delta=%0.2fm)" %
             (distance_with_brakes, distance_without_brakes, delta))
 
+    def drive_rtl_mission_max_distance_from_home(self):
+        '''maximum distance allowed from home at end'''
+        return 6.5
+
     def drive_rtl_mission(self):
         self.wait_ready_to_arm()
         self.arm_vehicle()
@@ -456,7 +406,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
         m = self.mav.recv_match(type='NAV_CONTROLLER_OUTPUT',
                                 blocking=True,
-                                timeout=0.1)
+                                timeout=1)
         if m is None:
             raise MsgRcvTimeoutException(
                 "Did not receive NAV_CONTROLLER_OUTPUT message")
@@ -464,8 +414,8 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         wp_dist_min = 5
         if m.wp_dist < wp_dist_min:
             raise PreconditionFailedException(
-                "Did not start at least %u metres from destination" %
-                (wp_dist_min))
+                "Did not start at least %f metres from destination (is=%f)" %
+                (wp_dist_min, m.wp_dist))
 
         self.progress("NAV_CONTROLLER_OUTPUT.wp_dist looks good (%u >= %u)" %
                       (m.wp_dist, wp_dist_min,))
@@ -476,7 +426,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                 raise NotAchievedException("Did not get home")
             self.progress("Distance home: %f (mode=%s)" %
                           (self.distance_to_home(), self.mav.flightmode))
-            if self.mode_is('HOLD'):
+            if self.mode_is('HOLD') or self.mode_is('LOITER'): # loiter for balancebot
                 break
 
         # the EKF doesn't pull us down to 0 speed:
@@ -486,7 +436,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         # up ~6m past the home point.
         home_distance = self.distance_to_home()
         home_distance_min = 5.5
-        home_distance_max = 6.5
+        home_distance_max = self.drive_rtl_mission_max_distance_from_home()
         if home_distance > home_distance_max:
             raise NotAchievedException(
                 "Did not stop near home (%f metres distant (%f > want > %f))" %
@@ -498,10 +448,13 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
     def wait_distance_home_gt(self, distance, timeout=60):
         home_distance = None
         tstart = self.get_sim_time()
-        while self.get_sim_time() - tstart < timeout:
+        while self.get_sim_time_cached() - tstart < timeout:
             # m = self.mav.recv_match(type='VFR_HUD', blocking=True)
-            if self.distance_to_home() > distance:
+            distance_home = self.distance_to_home(use_cached_home=True)
+            self.progress("distance_home=%f want=%f" % (distance_home, distance))
+            if distance_home > distance:
                 return
+            self.drain_mav()
         raise NotAchievedException("Failed to get %fm from home (now=%f)" %
                                    (distance, home_distance))
 
@@ -539,6 +492,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             ex = e
         self.context_pop()
         self.mavproxy.send("fence clear\n")
+        self.disarm_vehicle(force=True)
         self.reboot_sitl()
         if ex:
             raise ex
@@ -712,6 +666,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             self.progress("chan3=%f want=%f" % (m.chan3_raw, normal_rc_throttle))
             if m.chan3_raw == normal_rc_throttle:
                 break
+        self.disarm_vehicle()
 
     def test_rc_overrides(self):
         self.context_push()
@@ -805,6 +760,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             ex = e
 
         self.context_pop()
+        self.disarm_vehicle()
         self.reboot_sitl()
 
         if ex is not None:
@@ -919,10 +875,14 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             raise ex
 
     def test_rally_points(self):
+        self.reboot_sitl() # to ensure starting point is as expected
+
         self.load_rally("rover-test-rally.txt")
+        accuracy = self.get_parameter("WP_RADIUS")
 
         self.wait_ready_to_arm()
         self.arm_vehicle()
+
         self.reach_heading_manual(10)
         self.reach_distance_manual(50)
 
@@ -932,8 +892,65 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 	                           -105.229401,
                                0,
                                0)
-        self.wait_location(loc)
+        self.wait_location(loc, accuracy=accuracy)
         self.disarm_vehicle()
+
+    def test_offboard(self, timeout=90):
+        self.load_mission("rover-guided-mission.txt")
+        self.wait_ready_to_arm(require_absolute=True)
+        self.arm_vehicle()
+        self.change_mode("AUTO")
+
+        offboard_expected_duration = 10 # see mission file
+
+        if self.mav.messages.get("SET_POSITION_TARGET_GLOBAL_INT", None):
+            raise PreconditionFailedException("Already have SET_POSITION_TARGET_GLOBAL_INT")
+
+        tstart = self.get_sim_time_cached()
+        last_heartbeat_sent = 0
+        got_sptgi = False
+        magic_waypoint_tstart = 0
+        magic_waypoint_tstop = 0
+        while True:
+            if self.mode_is("HOLD", cached=True):
+                break
+
+            now = self.get_sim_time_cached()
+            if now - last_heartbeat_sent > 1:
+                last_heartbeat_sent = now
+                self.mav.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
+                                            mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                                            0,
+                                            0,
+                                            0)
+
+            if now - tstart > timeout:
+                raise AutoTestTimeoutException("Didn't complete")
+            magic_waypoint = 3
+#            mc = self.mav.messages.get("MISSION_CURRENT", None)
+            mc = self.mav.recv_match(type="MISSION_CURRENT", blocking=False)
+            if mc is not None:
+                print("%s" % str(mc))
+                if mc.seq == magic_waypoint:
+                    print("At magic waypoint")
+                    if magic_waypoint_tstart == 0:
+                        magic_waypoint_tstart = self.get_sim_time_cached()
+                    sptgi = self.mav.messages.get("SET_POSITION_TARGET_GLOBAL_INT", None)
+                    if sptgi is not None:
+                        got_sptgi = True
+                elif mc.seq > magic_waypoint:
+                    if magic_waypoint_tstop == 0:
+                        magic_waypoint_tstop = self.get_sim_time_cached()
+
+        self.disarm_vehicle()
+        offboard_duration = magic_waypoint_tstop - magic_waypoint_tstart
+        if abs(offboard_duration - offboard_expected_duration) > 1:
+            raise NotAchievedException("Did not stay in offboard control for correct time (want=%f got=%f)" %
+                                       (offboard_expected_duration, offboard_duration))
+
+        if not got_sptgi:
+            raise NotAchievedException("Did not get sptgi message")
+        print("spgti: %s" % str(sptgi))
 
     def tests(self):
         '''return list of all tests'''
@@ -1022,6 +1039,10 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             ("Rally",
              "Test Rally Points",
              self.test_rally_points),
+
+            ("Offboard",
+             "Test Offboard Control",
+             self.test_offboard),
 
             ("DataFlashOverMAVLink",
              "Test DataFlash over MAVLink",

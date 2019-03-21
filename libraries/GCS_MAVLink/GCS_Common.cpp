@@ -16,6 +16,7 @@
  */
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_HAL/AP_HAL.h>
+#include <AP_InternalError/AP_InternalError.h>
 #include <AP_OpticalFlow/AP_OpticalFlow.h>
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <AP_RangeFinder/RangeFinder_Backend.h>
@@ -198,7 +199,7 @@ void GCS_MAVLINK::send_meminfo(void)
 // report power supply status
 void GCS_MAVLINK::send_power_status(void)
 {
-    if (!vehicle_initialised()) {
+    if (!gcs().vehicle_initialised()) {
         // avoid unnecessary errors being reported to user
         return;
     }
@@ -256,8 +257,10 @@ bool GCS_MAVLINK::send_battery_status() const
     const AP_BattMonitor &battery = AP::battery();
 
     for(uint8_t i = 0; i < battery.num_instances(); i++) {
-        CHECK_PAYLOAD_SIZE(BATTERY_STATUS);
-        send_battery_status(battery, i);
+        if (battery.get_type(i) != AP_BattMonitor_Params::BattMonitor_Type::BattMonitor_TYPE_NONE) {
+            CHECK_PAYLOAD_SIZE(BATTERY_STATUS);
+            send_battery_status(battery, i);
+        }
     }
     return true;
 }
@@ -731,6 +734,12 @@ void GCS_MAVLINK::handle_radio_status(mavlink_message_t *msg, AP_Logger &datafla
     }
 }
 
+uint16_t GCS::sys_status_errors1()
+{
+    const uint32_t errors = AP::internalerror().errors();
+    return errors & 0xffff;
+}
+
 /*
   handle an incoming mission item
   return true if this is the last mission item, otherwise false
@@ -944,6 +953,7 @@ ap_message GCS_MAVLINK::mavlink_id_to_ap_message_id(const uint32_t mavlink_id) c
         { MAVLINK_MSG_ID_BATTERY_STATUS,        MSG_BATTERY_STATUS},
         { MAVLINK_MSG_ID_AOA_SSA,               MSG_AOA_SSA},
         { MAVLINK_MSG_ID_DEEPSTALL,             MSG_LANDING},
+        { MAVLINK_MSG_ID_EXTENDED_SYS_STATE,    MSG_EXTENDED_SYS_STATE},
             };
 
     for (uint8_t i=0; i<ARRAY_SIZE(map); i++) {
@@ -1889,9 +1899,7 @@ void GCS::send_statustext(MAV_SEVERITY severity, uint8_t dest_bitmask, const cha
     }
 
     // add statustext message to FrSky lib queue
-    if (frsky_telemetry_p != NULL) {
-        frsky_telemetry_p->queue_message(severity, text);
-    }
+    frsky.queue_message(severity, text);
 
     AP_Notify *notify = AP_Notify::get_singleton();
     if (notify) {
@@ -2014,6 +2022,10 @@ void GCS::setup_uarts(AP_SerialManager &serial_manager)
     for (uint8_t i = 1; i < MAVLINK_COMM_NUM_BUFFERS; i++) {
         chan(i).setup_uart(serial_manager, AP_SerialManager::SerialProtocol_MAVLink, i);
     }
+
+    frsky.init();
+
+    devo_telemetry.init();
 }
 
 // report battery2 state
@@ -2268,10 +2280,10 @@ void GCS_MAVLINK::send_heartbeat() const
 {
     mavlink_msg_heartbeat_send(
         chan,
-        frame_type(),
+        gcs().frame_type(),
         MAV_AUTOPILOT_ARDUPILOTMEGA,
         base_mode(),
-        custom_mode(),
+        gcs().custom_mode(),
         system_status());
 }
 
@@ -2457,7 +2469,11 @@ float GCS_MAVLINK::vfr_hud_airspeed() const
 
 float GCS_MAVLINK::vfr_hud_climbrate() const
 {
-    return -vfr_hud_velned.z;
+    Vector3f velned;
+    if (!AP::ahrs().get_velocity_NED(velned)) {
+      velned.zero();
+    }
+    return -velned.z;
 }
 
 float GCS_MAVLINK::vfr_hud_alt() const
@@ -2471,7 +2487,6 @@ void GCS_MAVLINK::send_vfr_hud()
 
     // return values ignored; we send stale data
     ahrs.get_position(global_position_current_loc);
-    ahrs.get_velocity_NED(vfr_hud_velned);
 
     mavlink_msg_vfr_hud_send(
         chan,
@@ -2504,6 +2519,11 @@ void GCS_MAVLINK::zero_rc_outputs()
  */
 MAV_RESULT GCS_MAVLINK::handle_preflight_reboot(const mavlink_command_long_t &packet)
 {
+    if (hal.util->get_soft_armed()) {
+        // refuse reboot when armed
+        return MAV_RESULT_FAILED;
+    }
+
     if (!(is_equal(packet.param1, 1.0f) || is_equal(packet.param1, 3.0f))) {
         // param1 must be 1 or 3 - 1 being reboot, 3 being reboot-to-bootloader
         return MAV_RESULT_UNSUPPORTED;
@@ -3508,6 +3528,32 @@ MAV_RESULT GCS_MAVLINK::handle_command_mount(const mavlink_command_long_t &packe
     return mount->handle_command_long(packet);
 }
 
+MAV_RESULT GCS_MAVLINK::handle_command_do_set_home(const mavlink_command_long_t &packet)
+{
+    if (is_equal(packet.param1, 1.0f) || (is_zero(packet.param5) && is_zero(packet.param6))) {
+        // param1 is 1 (or both lat and lon are zero); use current location
+        if (!set_home_to_current_location(true)) {
+            return MAV_RESULT_FAILED;
+        }
+        return MAV_RESULT_ACCEPTED;
+    }
+
+    // ensure param1 is zero
+    if (!is_zero(packet.param1)) {
+        return MAV_RESULT_FAILED;
+    }
+
+    Location new_home_loc;
+    new_home_loc.lat = (int32_t)(packet.param5 * 1.0e7f);
+    new_home_loc.lng = (int32_t)(packet.param6 * 1.0e7f);
+    new_home_loc.alt = (int32_t)(packet.param7 * 100.0f);
+    if (!set_home(new_home_loc, true)) {
+        return MAV_RESULT_FAILED;
+    }
+    return MAV_RESULT_ACCEPTED;
+}
+
+
 MAV_RESULT GCS_MAVLINK::handle_command_long_packet(const mavlink_command_long_t &packet)
 {
     MAV_RESULT result = MAV_RESULT_FAILED;
@@ -3524,6 +3570,10 @@ MAV_RESULT GCS_MAVLINK::handle_command_long_packet(const mavlink_command_long_t 
 
     case MAV_CMD_DO_SEND_BANNER:
         result = handle_command_do_send_banner(packet);
+        break;
+
+    case MAV_CMD_DO_SET_HOME:
+        result = handle_command_do_set_home(packet);
         break;
 
     case MAV_CMD_DO_FENCE_ENABLE:
@@ -3664,8 +3714,8 @@ MAV_RESULT GCS_MAVLINK::handle_command_do_set_roi(const Location &roi_loc)
 
 MAV_RESULT GCS_MAVLINK::handle_command_int_do_set_home(const mavlink_command_int_t &packet)
 {
-    if (is_equal(packet.param1, 1.0f)) {
-        // if param1 is 1, use current location
+    if (is_equal(packet.param1, 1.0f) || (packet.x == 0 && packet.y == 0)) {
+        // param1 is 1 (or both lat and lon are zero); use current location
         if (!set_home_to_current_location(true)) {
             return MAV_RESULT_FAILED;
         }
@@ -3675,7 +3725,7 @@ MAV_RESULT GCS_MAVLINK::handle_command_int_do_set_home(const mavlink_command_int
     if (!is_zero(packet.param1)) {
         return MAV_RESULT_FAILED;
     }
-    Location::ALT_FRAME frame;
+    Location::AltFrame frame;
     if (!mavlink_coordinate_frame_to_location_alt_frame(packet.frame, frame)) {
         // unknown coordinate frame
         return MAV_RESULT_UNSUPPORTED;
@@ -3814,12 +3864,28 @@ void GCS_MAVLINK::send_hwstatus()
         0);
 }
 
+void GCS_MAVLINK::send_rpm() const
+{
+    AP_RPM *rpm = AP::rpm();
+    if (rpm == nullptr) {
+        return;
+    }
+
+    if (!rpm->enabled(0) && !rpm->enabled(1)) {
+        return;
+    }
+
+    mavlink_msg_rpm_send(
+        chan,
+        rpm->get_rpm(0),
+        rpm->get_rpm(1));
+}
 
 void GCS_MAVLINK::send_sys_status()
 {
     // send extended status only once vehicle has been initialised
     // to avoid unnecessary errors being reported to user
-    if (!vehicle_initialised()) {
+    if (!gcs().vehicle_initialised()) {
         return;
     }
 
@@ -3850,7 +3916,15 @@ void GCS_MAVLINK::send_sys_status()
         battery_remaining,      // in %
         0,  // comm drops %,
         0,  // comm drops in pkts,
-        0, 0, 0, 0);
+        gcs().sys_status_errors1(),
+        0,  // errors2
+        0,  // errors3
+        0); // errors4
+}
+
+void GCS_MAVLINK::send_extended_sys_state() const
+{
+    mavlink_msg_extended_sys_state_send(chan, vtol_state(), landed_state());
 }
 
 void GCS_MAVLINK::send_attitude() const
@@ -3884,7 +3958,9 @@ void GCS_MAVLINK::send_global_position_int()
     ahrs.get_position(global_position_current_loc); // return value ignored; we send stale data
 
     Vector3f vel;
-    ahrs.get_velocity_NED(vel);
+    if (!ahrs.get_velocity_NED(vel)) {
+        vel.zero();
+    }
 
     mavlink_msg_global_position_int_send(
         chan,
@@ -3915,6 +3991,34 @@ void GCS_MAVLINK::send_mount_status() const
         return;
     }
     mount->send_mount_status(chan);
+}
+
+void GCS_MAVLINK::send_set_position_target_global_int(uint8_t target_system, uint8_t target_component, const Location& loc)
+{
+
+    const uint16_t type_mask = POSITION_TARGET_TYPEMASK_VX_IGNORE | POSITION_TARGET_TYPEMASK_VY_IGNORE | POSITION_TARGET_TYPEMASK_VZ_IGNORE | \
+                               POSITION_TARGET_TYPEMASK_AX_IGNORE | POSITION_TARGET_TYPEMASK_AY_IGNORE | POSITION_TARGET_TYPEMASK_AZ_IGNORE | \
+                               POSITION_TARGET_TYPEMASK_YAW_IGNORE | POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE;
+
+    // convert altitude to relative to home
+    int32_t rel_alt;
+    if (!loc.get_alt_cm(Location::AltFrame::ABOVE_HOME, rel_alt)) {
+        return;
+    }
+
+    mavlink_msg_set_position_target_global_int_send(
+            chan,
+            AP_HAL::millis(),
+            target_system,
+            target_component,
+            MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            type_mask,
+            loc.lat,
+            loc.lng,
+            rel_alt,
+            0,0,0,  // vx, vy, vz
+            0,0,0,  // ax, ay, az
+            0,0);   // yaw, yaw_rate
 }
 
 bool GCS_MAVLINK::try_send_message(const enum ap_message id)
@@ -3962,6 +4066,11 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
     case MSG_ORIGIN:
         CHECK_PAYLOAD_SIZE(GPS_GLOBAL_ORIGIN);
         send_gps_global_origin();
+        break;
+
+    case MSG_RPM:
+        CHECK_PAYLOAD_SIZE(RPM);
+        send_rpm();
         break;
 
     case MSG_CURRENT_WAYPOINT:
@@ -4150,6 +4259,11 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
     case MSG_AHRS:
         CHECK_PAYLOAD_SIZE(AHRS);
         send_ahrs();
+        break;
+
+    case MSG_EXTENDED_SYS_STATE:
+        CHECK_PAYLOAD_SIZE(EXTENDED_SYS_STATE);
+        send_extended_sys_state();
         break;
 
     case MSG_VFR_HUD:
@@ -4416,20 +4530,20 @@ void GCS::passthru_timer(void)
     }
 }
 
-bool GCS_MAVLINK::mavlink_coordinate_frame_to_location_alt_frame(const uint8_t coordinate_frame, Location::ALT_FRAME &frame)
+bool GCS_MAVLINK::mavlink_coordinate_frame_to_location_alt_frame(const uint8_t coordinate_frame, Location::AltFrame &frame)
 {
     switch (coordinate_frame) {
     case MAV_FRAME_GLOBAL_RELATIVE_ALT: // solo shot manager incorrectly sends RELATIVE_ALT instead of RELATIVE_ALT_INT
     case MAV_FRAME_GLOBAL_RELATIVE_ALT_INT:
-        frame = Location::ALT_FRAME_ABOVE_HOME;
+        frame = Location::AltFrame::ABOVE_HOME;
         return true;
     case MAV_FRAME_GLOBAL_TERRAIN_ALT:
     case MAV_FRAME_GLOBAL_TERRAIN_ALT_INT:
-        frame = Location::ALT_FRAME_ABOVE_TERRAIN;
+        frame = Location::AltFrame::ABOVE_TERRAIN;
         return true;
     case MAV_FRAME_GLOBAL:
     case MAV_FRAME_GLOBAL_INT:
-        frame = Location::ALT_FRAME_ABSOLUTE;
+        frame = Location::AltFrame::ABSOLUTE;
         return true;
     default:
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL

@@ -96,15 +96,6 @@ void Plane::init_ardupilot()
     // setup telem slots with serial ports
     gcs().setup_uarts(serial_manager);
 
-    // setup frsky
-#if FRSKY_TELEM_ENABLED == ENABLED
-    // setup frsky, and pass a number of parameters to the library
-    frsky_telemetry.init(MAV_TYPE_FIXED_WING);
-#endif
-#if DEVO_TELEM_ENABLED == ENABLED
-    devo_telemetry.init();
-#endif
-
 #if OSD_ENABLED == ENABLED
     osd.init();
 #endif
@@ -117,7 +108,8 @@ void Plane::init_ardupilot()
     airspeed.init();
 
     if (g.compass_enabled==true) {
-        bool compass_ok = compass.init() && compass.read();
+        compass.init();
+        bool compass_ok = compass.read();
 #if HIL_SUPPORT
     if (g.hil_mode != 0) {
         compass_ok = true;
@@ -306,13 +298,6 @@ void Plane::set_mode(enum FlightMode mode, mode_reason_t reason)
     control_mode = mode;
     previous_mode_reason = control_mode_reason;
     control_mode_reason = reason;
-
-#if FRSKY_TELEM_ENABLED == ENABLED
-    frsky_telemetry.update_control_mode(control_mode);
-#endif
-#if DEVO_TELEM_ENABLED == ENABLED
-    devo_telemetry.update_control_mode(control_mode);
-#endif
 
 #if CAMERA == ENABLED
     camera.set_is_auto_mode(control_mode == AUTO);
@@ -757,7 +742,7 @@ void Plane::change_arm_state(void)
 /*
   arm motors
  */
-bool Plane::arm_motors(const AP_Arming::ArmingMethod method, const bool do_arming_checks)
+bool Plane::arm_motors(const AP_Arming::Method method, const bool do_arming_checks)
 {
     if (!arming.arm(method, do_arming_checks)) {
         return false;

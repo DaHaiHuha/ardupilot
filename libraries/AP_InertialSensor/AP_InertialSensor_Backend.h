@@ -70,6 +70,9 @@ public:
      */
     int16_t get_id() const { return _id; }
 
+    //Returns the Clip Limit
+    float get_clip_limit() const { return _clip_limit; }
+
     // notify of a fifo reset
     void notify_fifo_reset(void);
     
@@ -102,7 +105,8 @@ public:
         DEVTYPE_INS_BMI088   = 0x2B,
         DEVTYPE_INS_ICM20948 = 0x2C,
         DEVTYPE_INS_ICM20648 = 0x2D,
-        DEVTYPE_INS_ICM20649 = 0x2E
+        DEVTYPE_INS_ICM20649 = 0x2E,
+        DEVTYPE_INS_ICM20602 = 0x2F,
     };
 
 protected:
@@ -111,6 +115,9 @@ protected:
 
     // semaphore for access to shared frontend data
     HAL_Semaphore_Recursive _sem;
+
+    //Default Clip Limit
+    float _clip_limit = 15.5f * GRAVITY_MSS;
 
     void _rotate_and_correct_accel(uint8_t instance, Vector3f &accel);
     void _rotate_and_correct_gyro(uint8_t instance, Vector3f &gyro);

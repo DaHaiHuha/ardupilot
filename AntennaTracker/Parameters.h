@@ -69,7 +69,7 @@ public:
         k_param_startup_delay,
         k_param_BoardConfig,
         k_param_gps,
-        k_param_scan_speed,
+        k_param_scan_speed_unused, // deprecated
         k_param_proxy_mode_unused, // deprecated
         k_param_servo_pitch_type,
         k_param_onoff_yaw_rate,
@@ -117,6 +117,9 @@ public:
 
         // 254,255: reserved
         k_param_gcs_pid_mask = 225,
+        k_param_scan_speed_yaw,
+        k_param_scan_speed_pitch,
+        k_param_initial_mode
     };
 
     AP_Int16 format_version;
@@ -132,7 +135,8 @@ public:
     AP_Float yaw_slew_time;
     AP_Float pitch_slew_time;
     AP_Float min_reverse_time;
-    AP_Float scan_speed;
+    AP_Int16 scan_speed_yaw;
+    AP_Int16 scan_speed_pitch;
 
     AP_Float start_latitude;
     AP_Float start_longitude;
@@ -153,6 +157,7 @@ public:
     AP_Int16 pitch_min;
     AP_Int16 pitch_max;
     AP_Int16 gcs_pid_mask;
+    AP_Int8  initial_mode;
 
     // Waypoints
     //

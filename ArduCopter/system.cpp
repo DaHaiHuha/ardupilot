@@ -87,18 +87,6 @@ void Copter::init_ardupilot()
     // setup telem slots with serial ports
     gcs().setup_uarts(serial_manager);
 
-#if FRSKY_TELEM_ENABLED == ENABLED
-    // setup frsky, and pass a number of parameters to the library
-    frsky_telemetry.init(get_frame_mav_type(),
-                         &ap.value);
-    frsky_telemetry.set_frame_string(get_frame_string());
-#endif
-
-#if DEVO_TELEM_ENABLED == ENABLED
-    // setup devo
-    devo_telemetry.init();
-#endif
-
 #if OSD_ENABLED == ENABLED
     osd.init();
 #endif
@@ -651,6 +639,9 @@ void Copter::allocate_motors(void)
 
     // upgrade parameters. This must be done after allocating the objects
     convert_pid_parameters();
+#if FRAME_CONFIG == HELI_FRAME
+    convert_tradheli_parameters();
+#endif
 }
 
 bool Copter::is_tradheli() const

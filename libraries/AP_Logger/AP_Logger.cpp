@@ -6,6 +6,8 @@
 #include "AP_Logger_SITL.h"
 #include "AP_Logger_DataFlash.h"
 #include "AP_Logger_MAVLink.h"
+
+#include <AP_InternalError/AP_InternalError.h>
 #include <GCS_MAVLink/GCS.h>
 
 AP_Logger *AP_Logger::_singleton;
@@ -32,6 +34,7 @@ const AP_Param::GroupInfo AP_Logger::var_info[] = {
     // @Param: _BACKEND_TYPE
     // @DisplayName: AP_Logger Backend Storage type
     // @Description: Bitmap of what Logger backend types to enable. Block-based logging is available on SITL and boards with dataflash chips. Multiple backends can be selected.
+    // @Values: 0:None,1:File,2:MAVLink,3:File and MAVLink,4:Block,6:Block and MAVLink
     // @Bitmask: 0:File,1:MAVLink,2:Block
     // @User: Standard
     AP_GROUPINFO("_BACKEND_TYPE",  0, AP_Logger, _params.backend_types,       uint8_t(HAL_LOGGING_BACKENDS_DEFAULT)),
@@ -707,12 +710,6 @@ uint32_t AP_Logger::num_dropped() const
 
 // end functions pass straight through to backend
 
-void AP_Logger::internal_error() const {
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
-    AP_HAL::panic("Internal AP_Logger error");
-#endif
-}
-
 /* Write support */
 void AP_Logger::Write(const char *name, const char *labels, const char *fmt, ...)
 {
@@ -738,7 +735,7 @@ void AP_Logger::WriteV(const char *name, const char *labels, const char *units, 
     if (f == nullptr) {
         // unable to map name to a messagetype; could be out of
         // msgtypes, could be out of slots, ...
-        internal_error();
+        AP::internalerror().error(AP_InternalError::error_t::logger_mapfailure);
         return;
     }
 
