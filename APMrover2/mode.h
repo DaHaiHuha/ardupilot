@@ -13,24 +13,24 @@
 // pre-define ModeRTL so Auto can appear higher in this file
 class ModeRTL;
 
-class Mode
-{
+class Mode {
 public:
 
     // Auto Pilot modes
     // ----------------
     enum Number {
-        MANUAL       = 0,
-        ACRO         = 1,
-        STEERING     = 3,
-        HOLD         = 4,
-        LOITER       = 5,
-        FOLLOW       = 6,
-        SIMPLE       = 7,
-        AUTO         = 10,
-        RTL          = 11,
-        SMART_RTL    = 12,
-        GUIDED       = 15,
+        MANUAL = 0,
+        ACRO = 1,
+        STEERING = 3,
+        HOLD = 4,
+        LOITER = 5,
+        FOLLOW = 6,
+        SIMPLE = 7,
+        NEW_MODE = 8,
+        AUTO = 10,
+        RTL = 11,
+        SMART_RTL = 12,
+        GUIDED = 15,
         INITIALISING = 16
     };
 
@@ -39,7 +39,8 @@ public:
 
     // do not allow copying
     Mode(const Mode &other) = delete;
-    Mode &operator=(const Mode&) = delete;
+
+    Mode &operator=(const Mode &) = delete;
 
     // enter this mode, returns false if we failed to enter
     bool enter();
@@ -85,11 +86,14 @@ public:
 
     // true if mode requires position and/or velocity estimate
     virtual bool requires_position() const { return true; }
+
     virtual bool requires_velocity() const { return true; }
 
     // return heading (in degrees) and cross track error (in meters) for reporting to ground station (NAV_CONTROLLER_OUTPUT message)
     virtual float wp_bearing() const;
+
     virtual float nav_bearing() const;
+
     virtual float crosstrack_error() const;
 
     //
@@ -101,10 +105,11 @@ public:
 
     // set desired location and speed (used in RTL, Guided, Auto)
     //   next_leg_bearing_cd should be heading to the following waypoint (used to slow the vehicle in order to make the turn)
-    virtual void set_desired_location(const struct Location& destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN);
+    virtual void
+    set_desired_location(const struct Location &destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN);
 
     // set desired location as offset from the EKF origin, return true on success
-    bool set_desired_location_NED(const Vector3f& destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN);
+    bool set_desired_location_NED(const Vector3f &destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN);
 
     // true if vehicle has reached desired location. defaults to true because this is normally used by missions and we do not want the mission to become stuck
     virtual bool reached_destination() const { return true; }
@@ -155,7 +160,8 @@ protected:
     void get_pilot_desired_heading_and_speed(float &heading_out, float &speed_out);
 
     // calculate steering output to drive along line from origin to destination waypoint
-    void calc_steering_to_waypoint(const struct Location &origin, const struct Location &destination, bool reversed = false);
+    void
+    calc_steering_to_waypoint(const struct Location &origin, const struct Location &destination, bool reversed = false);
 
     // calculate steering angle given a desired lateral acceleration
     void calc_steering_from_lateral_acceleration(float lat_accel, bool reversed = false);
@@ -187,7 +193,7 @@ protected:
     float calc_reduced_speed_for_turn_or_distance(float desired_speed);
 
     // calculate vehicle stopping location using current location, velocity and maximum acceleration
-    void calc_stopping_location(Location& stopping_loc);
+    void calc_stopping_location(Location &stopping_loc);
 
 protected:
 
@@ -198,11 +204,17 @@ protected:
 
     // references to avoid code churn:
     class AP_AHRS &ahrs;
+
     class Parameters &g;
+
     class ParametersG2 &g2;
+
     class RC_Channel *&channel_steer;
+
     class RC_Channel *&channel_throttle;
+
     class RC_Channel *&channel_lateral;
+
     class AR_AttitudeControl &attitude_control;
 
 
@@ -221,37 +233,16 @@ protected:
 };
 
 
-class ModeAcro : public Mode
-{
-public:
-
-    uint32_t mode_number() const override { return ACRO; }
-    const char *name4() const override { return "ACRO"; }
-
-    // methods that affect movement of the vehicle in this mode
-    void update() override;
-
-    // attributes for mavlink system status reporting
-    bool has_manual_input() const override { return true; }
-
-    // acro mode requires a velocity estimate for non skid-steer rovers
-    bool requires_position() const override { return false; }
-    bool requires_velocity() const override;
-
-    // sailboats in acro mode support user manually initiating tacking from transmitter
-    void handle_tack_request() override;
-};
-
-
-class ModeAuto : public Mode
-{
+class ModeAuto : public Mode {
 public:
 
     uint32_t mode_number() const override { return AUTO; }
+
     const char *name4() const override { return "AUTO"; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
     void calc_throttle(float target_speed, bool nudge_allowed, bool avoidance_enabled) override;
 
     // attributes of the mode
@@ -264,24 +255,28 @@ public:
     float get_distance_to_destination() const override;
 
     // set desired location, heading and speed
-    void set_desired_location(const struct Location& destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN) override;
+    void set_desired_location(const struct Location &destination,
+                              float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN) override;
+
     bool reached_destination() const override;
 
     // heading and speed control
     void set_desired_heading_and_speed(float yaw_angle_cd, float target_speed) override;
+
     bool reached_heading();
 
     // start RTL (within auto)
     void start_RTL();
 
     AP_Mission mission{
-        FUNCTOR_BIND_MEMBER(&ModeAuto::start_command, bool, const AP_Mission::Mission_Command&),
-        FUNCTOR_BIND_MEMBER(&ModeAuto::verify_command_callback, bool, const AP_Mission::Mission_Command&),
-        FUNCTOR_BIND_MEMBER(&ModeAuto::exit_mission, void)};
+            FUNCTOR_BIND_MEMBER(&ModeAuto::start_command, bool, const AP_Mission::Mission_Command&),
+            FUNCTOR_BIND_MEMBER(&ModeAuto::verify_command_callback, bool, const AP_Mission::Mission_Command&),
+            FUNCTOR_BIND_MEMBER(&ModeAuto::exit_mission, void)};
 
 protected:
 
     bool _enter() override;
+
     void _exit() override;
 
     enum AutoSubMode {
@@ -295,38 +290,61 @@ protected:
 private:
 
     bool check_trigger(void);
+
     bool start_loiter();
-    void start_guided(const Location& target_loc);
+
+    void start_guided(const Location &target_loc);
+
     void send_guided_position_target();
 
-    bool start_command(const AP_Mission::Mission_Command& cmd);
-    void exit_mission();
-    bool verify_command_callback(const AP_Mission::Mission_Command& cmd);
+    bool start_command(const AP_Mission::Mission_Command &cmd);
 
-    bool verify_command(const AP_Mission::Mission_Command& cmd);
+    void exit_mission();
+
+    bool verify_command_callback(const AP_Mission::Mission_Command &cmd);
+
+    bool verify_command(const AP_Mission::Mission_Command &cmd);
+
     void do_RTL(void);
-    void do_nav_wp(const AP_Mission::Mission_Command& cmd, bool always_stop_at_destination);
-    void do_nav_guided_enable(const AP_Mission::Mission_Command& cmd);
-    void do_nav_set_yaw_speed(const AP_Mission::Mission_Command& cmd);
-    bool verify_nav_wp(const AP_Mission::Mission_Command& cmd);
+
+    void do_nav_wp(const AP_Mission::Mission_Command &cmd, bool always_stop_at_destination);
+
+    void do_nav_guided_enable(const AP_Mission::Mission_Command &cmd);
+
+    void do_nav_set_yaw_speed(const AP_Mission::Mission_Command &cmd);
+
+    bool verify_nav_wp(const AP_Mission::Mission_Command &cmd);
+
     bool verify_RTL();
-    bool verify_loiter_unlimited(const AP_Mission::Mission_Command& cmd);
-    bool verify_loiter_time(const AP_Mission::Mission_Command& cmd);
-    bool verify_nav_guided_enable(const AP_Mission::Mission_Command& cmd);
+
+    bool verify_loiter_unlimited(const AP_Mission::Mission_Command &cmd);
+
+    bool verify_loiter_time(const AP_Mission::Mission_Command &cmd);
+
+    bool verify_nav_guided_enable(const AP_Mission::Mission_Command &cmd);
+
     bool verify_nav_set_yaw_speed();
-    void do_wait_delay(const AP_Mission::Mission_Command& cmd);
-    void do_within_distance(const AP_Mission::Mission_Command& cmd);
+
+    void do_wait_delay(const AP_Mission::Mission_Command &cmd);
+
+    void do_within_distance(const AP_Mission::Mission_Command &cmd);
+
     bool verify_wait_delay();
+
     bool verify_within_distance();
-    void do_change_speed(const AP_Mission::Mission_Command& cmd);
-    void do_set_home(const AP_Mission::Mission_Command& cmd);
-    void do_set_reverse(const AP_Mission::Mission_Command& cmd);
-    void do_guided_limits(const AP_Mission::Mission_Command& cmd);
+
+    void do_change_speed(const AP_Mission::Mission_Command &cmd);
+
+    void do_set_home(const AP_Mission::Mission_Command &cmd);
+
+    void do_set_reverse(const AP_Mission::Mission_Command &cmd);
+
+    void do_guided_limits(const AP_Mission::Mission_Command &cmd);
 
     enum Mis_Done_Behave {
-        MIS_DONE_BEHAVE_HOLD      = 0,
-        MIS_DONE_BEHAVE_LOITER    = 1,
-        MIS_DONE_BEHAVE_ACRO      = 2
+        MIS_DONE_BEHAVE_HOLD = 0,
+        MIS_DONE_BEHAVE_LOITER = 1,
+        MIS_DONE_BEHAVE_ACRO = 2
     };
 
     bool auto_triggered;        // true when auto has been triggered to start
@@ -355,11 +373,11 @@ private:
 };
 
 
-class ModeGuided : public Mode
-{
+class ModeGuided : public Mode {
 public:
 
     uint32_t mode_number() const override { return GUIDED; }
+
     const char *name4() const override { return "GUID"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -378,11 +396,14 @@ public:
     bool reached_destination() const override;
 
     // set desired location, heading and speed
-    void set_desired_location(const struct Location& destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN) override;
+    void set_desired_location(const struct Location &destination,
+                              float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN) override;
+
     void set_desired_heading_and_speed(float yaw_angle_cd, float target_speed) override;
 
     // set desired heading-delta, turn-rate and speed
     void set_desired_heading_delta_and_speed(float yaw_delta_cd, float target_speed);
+
     void set_desired_turn_rate_and_speed(float turn_rate_cds, float target_speed);
 
     // vehicle start loiter
@@ -390,8 +411,11 @@ public:
 
     // guided limits
     void limit_set(uint32_t timeout_ms, float horiz_max);
+
     void limit_clear();
+
     void limit_init_time_and_location();
+
     bool limit_breached() const;
 
 protected:
@@ -422,11 +446,11 @@ protected:
 };
 
 
-class ModeHold : public Mode
-{
+class ModeHold : public Mode {
 public:
 
     uint32_t mode_number() const override { return HOLD; }
+
     const char *name4() const override { return "HOLD"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -437,14 +461,15 @@ public:
 
     // hold mode does not require position or velocity estimate
     bool requires_position() const override { return false; }
+
     bool requires_velocity() const override { return false; }
 };
 
-class ModeLoiter : public Mode
-{
+class ModeLoiter : public Mode {
 public:
 
     uint32_t mode_number() const override { return LOITER; }
+
     const char *name4() const override { return "LOIT"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -455,7 +480,9 @@ public:
 
     // return desired heading (in degrees) and cross track error (in meters) for reporting to ground station (NAV_CONTROLLER_OUTPUT message)
     float wp_bearing() const override { return _desired_yaw_cd; }
+
     float nav_bearing() const override { return _desired_yaw_cd; }
+
     float crosstrack_error() const override { return 0.0f; }
 
     // return distance (in meters) to destination
@@ -466,11 +493,11 @@ protected:
     bool _enter() override;
 };
 
-class ModeManual : public Mode
-{
+class ModeManual : public Mode {
 public:
 
     uint32_t mode_number() const override { return MANUAL; }
+
     const char *name4() const override { return "MANU"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -478,10 +505,12 @@ public:
 
     // attributes for mavlink system status reporting
     bool has_manual_input() const override { return true; }
+
     bool attitude_stabilized() const override { return false; }
 
     // manual mode does not require position or velocity estimate
     bool requires_position() const override { return false; }
+
     bool requires_velocity() const override { return false; }
 
 protected:
@@ -490,11 +519,11 @@ protected:
 };
 
 
-class ModeRTL : public Mode
-{
+class ModeRTL : public Mode {
 public:
 
     uint32_t mode_number() const override { return RTL; }
+
     const char *name4() const override { return "RTL"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -504,6 +533,7 @@ public:
     bool is_autopilot_mode() const override { return true; }
 
     float get_distance_to_destination() const override { return _distance_to_destination; }
+
     bool reached_destination() const override { return _reached_destination; }
 
 protected:
@@ -511,11 +541,11 @@ protected:
     bool _enter() override;
 };
 
-class ModeSmartRTL : public Mode
-{
+class ModeSmartRTL : public Mode {
 public:
 
     uint32_t mode_number() const override { return SMART_RTL; }
+
     const char *name4() const override { return "SRTL"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -525,6 +555,7 @@ public:
     bool is_autopilot_mode() const override { return true; }
 
     float get_distance_to_destination() const override { return _distance_to_destination; }
+
     bool reached_destination() const override { return smart_rtl_state == SmartRTL_StopAtHome; }
 
     // save current position for use by the smart_rtl flight mode
@@ -541,15 +572,16 @@ protected:
     } smart_rtl_state;
 
     bool _enter() override;
+
     bool _load_point;
 };
 
 
-class ModeSteering : public Mode
-{
+class ModeSteering : public Mode {
 public:
 
     uint32_t mode_number() const override { return STEERING; }
+
     const char *name4() const override { return "STER"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -560,29 +592,31 @@ public:
 
     // steering requires velocity but not position
     bool requires_position() const override { return false; }
+
     bool requires_velocity() const override { return true; }
 };
 
-class ModeInitializing : public Mode
-{
+class ModeInitializing : public Mode {
 public:
 
     uint32_t mode_number() const override { return INITIALISING; }
+
     const char *name4() const override { return "INIT"; }
 
     // methods that affect movement of the vehicle in this mode
-    void update() override { }
+    void update() override {}
 
     // attributes for mavlink system status reporting
     bool has_manual_input() const override { return true; }
+
     bool attitude_stabilized() const override { return false; }
 };
 
-class ModeFollow : public Mode
-{
+class ModeFollow : public Mode {
 public:
 
     uint32_t mode_number() const override { return FOLLOW; }
+
     const char *name4() const override { return "FOLL"; }
 
     // methods that affect movement of the vehicle in this mode
@@ -593,7 +627,9 @@ public:
 
     // return desired heading (in degrees) and cross track error (in meters) for reporting to ground station (NAV_CONTROLLER_OUTPUT message)
     float wp_bearing() const override;
+
     float nav_bearing() const override { return wp_bearing(); }
+
     float crosstrack_error() const override { return 0.0f; }
 
     // return distance (in meters) to destination
@@ -604,15 +640,16 @@ protected:
     bool _enter() override;
 };
 
-class ModeSimple : public Mode
-{
+class ModeSimple : public Mode {
 public:
 
     uint32_t mode_number() const override { return SIMPLE; }
+
     const char *name4() const override { return "SMPL"; }
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
+
     void init_heading();
 
     // simple type enum used for SIMPLE_TYPE parameter
@@ -627,3 +664,123 @@ private:
     float _desired_heading_cd;  // latest desired heading (in centi-degrees) from pilot
 };
 
+class ModeNew_mode : public Mode {
+public:
+    uint32_t mode_number() const override { return NEW_MODE; }
+
+    const char *name4() const override { return "NEWM"; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    // return if in non-manual mode : AUTO, GUIDED, RTL
+    virtual bool is_autopilot_mode() const { return false; }
+
+    // returns true if steering is directly controlled by RC
+    virtual bool manual_steering() const { return false; }
+
+    // returns true if the throttle is controlled automatically
+    // virtual bool auto_throttle() { return is_autopilot_mode(); }
+    virtual bool auto_throttle() { return false; }
+
+protected:
+    // perform the init job
+    bool _enter() override;
+
+    //perform the exit job
+    void _exit() override;
+
+    /*
+public:
+
+    uint32_t mode_number() const override { return New_mode; }
+
+    const char *name4() const override { return "NEWM"; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    // attributes of the mode
+    bool is_autopilot_mode() const override { return true; }
+
+    // return if external control is allowed in this mode (Guided or Guided-within-Auto)
+    bool in_guided_mode() const override { return true; }
+
+    // return distance (in meters) to destination
+    float get_distance_to_destination() const override;
+
+    // return true if vehicle has reached destination
+    bool reached_destination() const override;
+
+    // set desired location, heading and speed
+    void set_desired_location(const struct Location &destination,
+                              float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN) override;
+
+    void set_desired_heading_and_speed(float yaw_angle_cd, float target_speed) override;
+
+    // set desired heading-delta, turn-rate and speed
+    void set_desired_heading_delta_and_speed(float yaw_delta_cd, float target_speed);
+
+    void set_desired_turn_rate_and_speed(float turn_rate_cds, float target_speed);
+
+    // vehicle start loiter
+    bool start_loiter();
+
+    // guided limits
+    void limit_set(uint32_t timeout_ms, float horiz_max);
+
+    void limit_clear();
+
+    void limit_init_time_and_location();
+
+    bool limit_breached() const;
+
+protected:
+
+    enum GuidedMode {
+        Guided_WP,
+        Guided_HeadingAndSpeed,
+        Guided_TurnRateAndSpeed,
+        Guided_Loiter
+    };
+
+    bool _enter() override;
+
+    GuidedMode _guided_mode;    // stores which GUIDED mode the vehicle is in
+
+    // attitude control
+    bool have_attitude_target;  // true if we have a valid attitude target
+    uint32_t _des_att_time_ms;  // system time last call to set_desired_attitude was made (used for timeout)
+    float _desired_yaw_rate_cds;// target turn rate centi-degrees per second
+
+    // limits
+    struct {
+        uint32_t timeout_ms;// timeout from the time that guided is invoked
+        float horiz_max;    // horizontal position limit in meters from where guided mode was initiated (0 = no limit)
+        uint32_t start_time_ms; // system time in milliseconds that control was handed to the external computer
+        Location start_loc; // starting location for checking horiz_max limit
+    } limit;
+    */
+};
+
+class ModeAcro : public Mode {
+public:
+
+    uint32_t mode_number() const override { return ACRO; }
+
+    const char *name4() const override { return "ACRO"; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    // attributes for mavlink system status reporting
+    bool has_manual_input() const override { return true; }
+
+    // acro mode requires a velocity estimate for non skid-steer rovers
+    bool requires_position() const override { return false; }
+
+    bool requires_velocity() const override;
+
+    // sailboats in acro mode support user manually initiating tacking from transmitter
+    void handle_tack_request() override;
+};
