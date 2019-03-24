@@ -27,6 +27,7 @@ public:
         LOITER       = 5,
         FOLLOW       = 6,
         SIMPLE       = 7,
+        NEW_MODE     = 8,
         AUTO         = 10,
         RTL          = 11,
         SMART_RTL    = 12,
@@ -627,3 +628,68 @@ private:
     float _desired_heading_cd;  // latest desired heading (in centi-degrees) from pilot
 };
 
+class ModeNew_mode : public Mode
+{
+public:
+
+    uint32_t mode_number() const override { return GUIDED; }
+    const char *name4() const override { return "GUID"; }
+
+    // methods that affect movement of the vehicle in this mode
+    void update() override;
+
+    // attributes of the mode
+    bool is_autopilot_mode() const override { return true; }
+
+    // return if external control is allowed in this mode (Guided or Guided-within-Auto)
+    bool in_guided_mode() const override { return true; }
+
+    // return distance (in meters) to destination
+    float get_distance_to_destination() const override;
+
+    // return true if vehicle has reached destination
+    bool reached_destination() const override;
+
+    // set desired location, heading and speed
+    void set_desired_location(const struct Location& destination, float next_leg_bearing_cd = MODE_NEXT_HEADING_UNKNOWN) override;
+    void set_desired_heading_and_speed(float yaw_angle_cd, float target_speed) override;
+
+    // set desired heading-delta, turn-rate and speed
+    void set_desired_heading_delta_and_speed(float yaw_delta_cd, float target_speed);
+    void set_desired_turn_rate_and_speed(float turn_rate_cds, float target_speed);
+
+    // vehicle start loiter
+    bool start_loiter();
+
+    // guided limits
+    void limit_set(uint32_t timeout_ms, float horiz_max);
+    void limit_clear();
+    void limit_init_time_and_location();
+    bool limit_breached() const;
+
+protected:
+
+    enum GuidedMode {
+        Guided_WP,
+        Guided_HeadingAndSpeed,
+        Guided_TurnRateAndSpeed,
+        Guided_Loiter
+    };
+
+    bool _enter() override;
+
+    GuidedMode _guided_mode;    // stores which GUIDED mode the vehicle is in
+
+    // attitude control
+    bool have_attitude_target;  // true if we have a valid attitude target
+    uint32_t _des_att_time_ms;  // system time last call to set_desired_attitude was made (used for timeout)
+    float _desired_yaw_rate_cds;// target turn rate centi-degrees per second
+
+    // limits
+    struct {
+        uint32_t timeout_ms;// timeout from the time that guided is invoked
+        float horiz_max;    // horizontal position limit in meters from where guided mode was initiated (0 = no limit)
+        uint32_t start_time_ms; // system time in milliseconds that control was handed to the external computer
+        Location start_loc; // starting location for checking horiz_max limit
+    } limit;
+};
