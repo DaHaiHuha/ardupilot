@@ -21,12 +21,12 @@ public:
     enum Number {
         MANUAL = 0,
         ACRO = 1,
+        NEW_MODE = 2,
         STEERING = 3,
         HOLD = 4,
         LOITER = 5,
         FOLLOW = 6,
         SIMPLE = 7,
-        NEW_MODE = 8,
         AUTO = 10,
         RTL = 11,
         SMART_RTL = 12,
